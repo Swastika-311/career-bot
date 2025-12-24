@@ -1,10 +1,13 @@
-from .metrics import CompressionMetrics, OptimizerMetrics
+from .metrics import OptimizerMetrics, CompressorMetrics
+from .optimized_prompt import OptimizedContext
 from .compressed_prompt import CompressedPrompt
-from .optimized_prompt import OptimizedContext  # This matches the filename optimized_prompt.py
+from .pipeline_result import PipelineResult, StepMetadata
 
 __all__ = [
-    "CompressionMetrics",
-    "OptimizerMetrics", 
+    "OptimizerMetrics",
+    "CompressorMetrics",
+    "OptimizedContext",
     "CompressedPrompt",
-    "OptimizedContext"
+    "PipelineResult",
+    "StepMetadata"
 ]

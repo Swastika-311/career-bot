@@ -4,6 +4,8 @@ Uses the local HasteContext library for code context retrieval.
 """
 from typing import Union, List, Optional, Dict, Any
 import time
+import os
+import tempfile
 
 try:
     from haste import select_from_file
@@ -74,7 +76,7 @@ class HasteOptimizer(BaseOptimizer):
     def optimize(
         self,
         context: Union[str, List[str]],
-        query: str,
+        query: Optional[str]=None,
         max_tokens: Optional[int] = None,
         file_path: Optional[str] = None,
         **kwargs
@@ -100,17 +102,38 @@ class HasteOptimizer(BaseOptimizer):
         OptimizedContext
             Optimized context with relevant code and metrics
         """
+        start_time = time.time()
+        if query is None:
+            query = kwargs.get("query")
+        if file_path is None:
+            file_path = kwargs.get("file_path")
+        if max_tokens is None:
+            max_tokens = kwargs.get("max_tokens")
+
         if not query:
             raise ValueError("Query is required for HASTE optimization")
-        
+
+        # 3. Handle string input without file_path by creating a temp file
+        temp_path = None
         if not file_path:
-            raise ValueError(
-                "file_path is required for HASTE optimization. "
-                "Pass the path to the Python file you want to analyze."
-            )
-        
-        start_time = time.time()
-        
+            # If context is a string, we can try to write it to a temp file
+            if isinstance(context, str) and len(context.strip()) > 0:
+                # Write to temp file
+                with tempfile.NamedTemporaryFile(
+                    mode='w',
+                    suffix='.py',
+                    delete=False,
+                    encoding='utf-8'
+                ) as f:
+                    f.write(context)
+                    temp_path = f.name
+                file_path = temp_path
+            else:
+                 raise ValueError(
+                    "file_path is required for HASTE optimization, or context must be a valid code string."
+                )
+
+
         try:
             # Call HASTE's select_from_file function
             result = select_from_file(
@@ -131,13 +154,14 @@ class HasteOptimizer(BaseOptimizer):
             # Extract optimized code
             optimized_content = result.get('code', '')
             nodes = result.get('nodes', [])
-            summary = result.get('summary', {})
             
-            # Calculate metrics
-            # Approximate original tokens (rough estimate)
-            with open(file_path, 'r', encoding='utf-8') as f:
-                original_code = f.read()
-            original_tokens = len(original_code.split())
+            # Estimate original tokens
+            original_tokens = 0
+            if file_path and os.path.exists(file_path):
+                 with open(file_path, 'r', encoding='utf-8') as f:
+                    original_code = f.read()
+                    original_tokens = len(original_code.split())
+            
             optimized_tokens = len(optimized_content.split())
             
             metrics = OptimizerMetrics(
@@ -147,7 +171,7 @@ class HasteOptimizer(BaseOptimizer):
                 compression_ratio=original_tokens / max(optimized_tokens, 1),
                 latency_ms=latency_ms,
                 retrieval_mode='hybrid' if self.semantic else 'bm25',
-                ast_fidelity=1.0  # HASTE preserves AST structure
+                ast_fidelity=1.0 
             )
             
             return OptimizedContext(
@@ -157,58 +181,9 @@ class HasteOptimizer(BaseOptimizer):
             
         except Exception as e:
             raise OptimizerError(f"HASTE optimization failed: {str(e)}")
-    
-    def optimize_from_string(
-        self,
-        source_code: str,
-        query: str,
-        max_tokens: Optional[int] = None,
-        **kwargs
-    ) -> OptimizedContext:
-        """
-        Optimize from source code string by writing to temp file.
-        
-        Parameters
-        ----------
-        source_code : str
-            Python source code as string
-        query : str
-            Query for retrieval
-        max_tokens : int, optional
-            Token budget
-            
-        Returns
-        -------
-        OptimizedContext
-            Optimized context
-        """
-        import tempfile
-        import os
-        
-        # Write to temp file
-        with tempfile.NamedTemporaryFile(
-            mode='w',
-            suffix='.py',
-            delete=False,
-            encoding='utf-8'
-        ) as f:
-            f.write(source_code)
-            temp_path = f.name
-        
-        try:
-            result = self.optimize(
-                context=source_code,
-                query=query,
-                max_tokens=max_tokens,
-                file_path=temp_path,
-                **kwargs
-            )
-            return result
         finally:
-            # Clean up temp file
-            if os.path.exists(temp_path):
+            if temp_path and os.path.exists(temp_path):
                 os.unlink(temp_path)
-
-
 # Alias for backward compatibility
 HasteContext = HasteOptimizer
+    

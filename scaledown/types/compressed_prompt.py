@@ -1,65 +1,34 @@
-from pydantic import BaseModel, computed_field
-from typing import Tuple
-from .metrics import CompressionMetrics
+from dataclasses import dataclass
+from typing import Tuple, Dict, Any
 
-class CompressedPrompt(BaseModel):
-    """
-    A Pydantic model with structured, validated metrics.
-    """
+@dataclass
+class CompressedPrompt:
     content: str
-    metrics: CompressionMetrics
+    original_prompt: str
+    tokens: Tuple[int, int]  # (original, compressed)
+    latency: float
+    model: str
     
-    def __str__(self) -> str:
-        return self.content
-    
-    def __repr__(self) -> str:
-        return f"CompressedPrompt({len(self.content)} chars, {self.savings_percent:.1f}% saved)"
-    
-    @computed_field
-    @property
-    def tokens(self) -> Tuple[int, int]:
-        return (self.metrics.original_prompt_tokens, 
-                self.metrics.compressed_prompt_tokens)
-    
-    @computed_field
-    @property
-    def savings_percent(self) -> float:
-        """Percentage of tokens removed (e.g., 60.0)."""
-        orig = self.metrics.original_prompt_tokens
-        comp = self.metrics.compressed_prompt_tokens
-        if not orig:
-            return 0.0
-        return ((orig - comp) / orig) * 100
-
-    @computed_field
     @property
     def compression_ratio(self) -> float:
-        """Ratio of original to compressed size (e.g., 2.5)."""
-        orig = self.metrics.original_prompt_tokens
-        comp = self.metrics.compressed_prompt_tokens
-        if not comp:
-            return 0.0 
-        return orig / comp
-    
+        if self.tokens[1] == 0: return 0.0
+        return self.tokens[0] / self.tokens[1]
+
     @property
-    def latency(self) -> int:
-        return self.metrics.latency_ms
-    
-    def print_stats(self) -> None:
-        print(f"ScaleDown Stats:")
-        print(f"  - Tokens: {self.tokens[0]} -> {self.tokens[1]}")
-        print(f"  - Savings: {self.savings_percent:.1f}%")
-        print(f"  - Ratio: {self.compression_ratio:.1f}x")
-        print(f"  - Latency: {self.latency}ms")
-    
+    def savings_percent(self) -> float:
+        if self.tokens[0] == 0: return 0.0
+        return (1 - (self.tokens[1] / self.tokens[0])) * 100
+
     @classmethod
-    def from_api_response(cls, content: str, raw_response: dict) -> 'CompressedPrompt':
-        metrics_data = raw_response.get('metrics', raw_response)
-        
-        metrics = CompressionMetrics(
-            original_prompt_tokens=metrics_data.get('original_prompt_tokens', 0),
-            compressed_prompt_tokens=metrics_data.get('compressed_prompt_tokens', 0),
-            latency_ms=metrics_data.get('latency_ms', 0),
-            timestamp=metrics_data.get('timestamp')
+    def from_api_response(cls, content: str, raw_response: Dict[str, Any]) -> "CompressedPrompt":
+        """Factory method to create instance from raw API response dict."""
+        return cls(
+            content=content,
+            original_prompt=raw_response.get("original_prompt", ""),
+            tokens=(
+                raw_response.get("original_prompt_tokens", 0),
+                raw_response.get("compressed_prompt_tokens", 0)
+            ),
+            latency=raw_response.get("latency_ms", 0.0),
+            model=raw_response.get("model_used", "unknown")
         )
-        return cls(content=content, metrics=metrics)

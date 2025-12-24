@@ -2,7 +2,7 @@ from typing import List, Tuple, Union, Optional
 from scaledown.optimizer.base import BaseOptimizer
 from scaledown.compressor.base import BaseCompressor
 from scaledown.types import OptimizedContext, CompressedPrompt
-
+from scaledown.types import PipelineResult, StepMetadata
 
 class Pipeline:
     """
@@ -49,63 +49,116 @@ class Pipeline:
                     f"Optimizer '{name}' cannot come after a compressor. "
                     "Pipeline order must be: optimizers -> compressors"
                 )
-    
-    def run(
-        self,
-        context: Union[str, List[str]],
-        query: Optional[str] = None,
-        prompt: Optional[str] = None,
-        max_tokens: Optional[int] = None,
-        **kwargs
-    ) -> Union[OptimizedContext, CompressedPrompt]:
-        """
-        Run the full pipeline.
-        
-        Parameters
-        ----------
-        context : str or List[str]
-            Input context (code, documents, etc.)
-        query : str, optional
-            Query for optimizers
-        prompt : str, optional
-            Prompt for compressors
-        max_tokens : int, optional
-            Token budget
-        **kwargs : dict
-            Additional parameters
+    def run(self, context: str, **kwargs) -> PipelineResult:
+        current_context = context
+        original_context = context
+        history: List[StepMetadata] = []
+
+        for name, component in self.steps:
+            step_type = "custom"
+            inp, out, lat = 0, 0, 0.0
             
-        Returns
-        -------
-        OptimizedContext or CompressedPrompt
-            Final output from the last step
-        """
-        current_output = context
-        
-        for name, step in self.steps:
-            if isinstance(step, BaseOptimizer):
-                # Optimizer step
-                current_output = step.optimize(
-                    context=current_output if isinstance(current_output, (str, list)) else str(current_output),
-                    query=query,
-                    max_tokens=max_tokens,
+            # OPTIMIZER
+            if isinstance(component, BaseOptimizer):
+                step_type = "optimization"
+                result = component.optimize(
+                    context=current_context,
                     **kwargs
                 )
-            elif isinstance(step, BaseCompressor):
-                # Compressor step
-                if isinstance(current_output, OptimizedContext):
-                    context_str = str(current_output)
-                else:
-                    context_str = current_output
+                inp = getattr(result.metrics, 'original_tokens', 0)
+                out = getattr(result.metrics, 'optimized_tokens', 0)
+                lat = getattr(result.metrics, 'latency_ms', 0.0)
+                current_context = result.content
+            
+            # COMPRESSOR
+            elif isinstance(component, BaseCompressor):
+                step_type = "compression"
+                result = component.compress(
+                    context=current_context,
+                    **kwargs
+                )
+                inp = result.tokens[0]
+                out = result.tokens[1]
+                lat = result.latency
+                current_context = result.content
+            
+            # UNKNOWN
+            else:
+                output = component(current_context, **kwargs)
+                inp = len(current_context) // 4
+                out = len(output) // 4
+                current_context = output
+            
+            history.append(StepMetadata(
+                step_name=name,
+                input_tokens=inp,
+                output_tokens=out,
+                latency_ms=lat,
+                details={"type": step_type, "component": component.__class__.__name__}
+            ))
+
+        return PipelineResult(
+            final_content=current_context,
+            original_content=original_context,
+            history=history
+        )
+
+    # def run(
+    #     self,
+    #     context: Union[str, List[str]],
+    #     query: Optional[str] = None,
+    #     prompt: Optional[str] = None,
+    #     max_tokens: Optional[int] = None,
+    #     **kwargs
+    # ) -> Union[OptimizedContext, CompressedPrompt]:
+    #     """
+    #     Run the full pipeline.
+        
+    #     Parameters
+    #     ----------
+    #     context : str or List[str]
+    #         Input context (code, documents, etc.)
+    #     query : str, optional
+    #         Query for optimizers
+    #     prompt : str, optional
+    #         Prompt for compressors
+    #     max_tokens : int, optional
+    #         Token budget
+    #     **kwargs : dict
+    #         Additional parameters
+            
+        # Returns
+        # -------
+        # OptimizedContext or CompressedPrompt
+        #     Final output from the last step
+        # """
+        # current_output = context
+        
+        # for name, step in self.steps:
+        #     if isinstance(step, BaseOptimizer):
+        #         # Optimizer step
+        #         current_output = step.optimize(
+        #             context=current_output if isinstance(current_output, (str, list)) else str(current_output),
+        #             query=query,
+        #             max_tokens=max_tokens,
+        #             **kwargs
+        #         )
+        #     elif isinstance(step, BaseCompressor):
+        #         # Compressor step
+        #         if isinstance(current_output, OptimizedContext):
+        #             context_str = str(current_output)
+        #         else:
+        #             context_str = current_output
                 
-                current_output = step.compress(
-                    context=context_str,
-                    prompt=prompt or query or "",
-                    max_tokens=max_tokens,
-                    **kwargs
-                )
+        #         current_output = step.compress(
+        #             context=context_str,
+        #             prompt=prompt or query or "",
+        #             max_tokens=max_tokens,
+        #             **kwargs
+        #         )
         
-        return current_output
-    
+        # return current_output 
+
     def get_step(self, name: str) -> Union[BaseOptimizer, BaseCompressor]:
         """Get a step by name."""
         for step_name, step in self.steps:
@@ -118,7 +171,7 @@ class Pipeline:
         return f"Pipeline(steps={step_names})"
 
 
-def make_pipeline(*steps) -> Pipeline:
+def make_pipeline(steps) -> Pipeline:
     """
     Helper function to create a pipeline.
     
@@ -139,4 +192,4 @@ def make_pipeline(*steps) -> Pipeline:
     ...     ('compress', ScaleDownCompressor())
     ... )
     """
-    return Pipeline(list(steps))
+    return Pipeline(steps)

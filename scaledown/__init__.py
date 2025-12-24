@@ -1,29 +1,44 @@
+
 import os
 from typing import Optional
 
-# Import config functions first
+# Configuration
 from scaledown.config import set_api_key, get_api_key
 
-# Import modules
-from scaledown.compressor import ScaleDownCompressor
-from scaledown.optimizer import HasteOptimizer
+# Core Components
 from scaledown.pipeline import Pipeline, make_pipeline
-from scaledown.types import CompressedPrompt, OptimizedContext
-from scaledown.exceptions import AuthenticationError, APIError, ScaleDownError
+from scaledown.optimizer.haste import HasteOptimizer
+from scaledown.compressor.scaledown_compressor import ScaleDownCompressor
 
-# Global configuration state
+# Types & Exceptions
+from scaledown.types import (
+    CompressedPrompt, 
+    OptimizedContext, 
+    PipelineResult, 
+    StepMetadata
+)
+from scaledown.exceptions import (
+    ScaleDownError, 
+    AuthenticationError, 
+    APIError
+)
+
+# Initialize global state if env var exists
 _API_KEY: Optional[str] = os.environ.get("SCALEDOWN_API_KEY")
 
 __all__ = [
-    "ScaleDownCompressor",
-    "HasteOptimizer",
     "Pipeline",
     "make_pipeline",
+    "HasteOptimizer",
+    "ScaleDownCompressor",
     "set_api_key",
     "get_api_key",
+    "PipelineResult",
+    "StepMetadata",
     "CompressedPrompt",
     "OptimizedContext",
+    "ScaleDownError",
     "AuthenticationError",
-    "APIError",
-    "ScaleDownError"
+    "APIError"
 ]
+

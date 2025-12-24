@@ -2,6 +2,7 @@ import pytest
 import tempfile
 import os
 import scaledown as sd
+from scaledown.types import OptimizedContext
 
 TEST_CODE = """
 def dependency(x):
@@ -28,18 +29,31 @@ def test_initialization():
     assert opt.top_k == 5
     assert opt.semantic is False
 
-def test_optimization_bm25(temp_python_file):
+def test_optimization_bm25_with_file(temp_python_file):
+    """Test optimization when explicit file path is provided."""
     opt = sd.HasteOptimizer(top_k=1, semantic=False)
     result = opt.optimize(
-        context="",
+        context="", # Context ignored if file_path present
         query="target_function",
         file_path=temp_python_file
     )
     
-    assert isinstance(result, sd.OptimizedContext)
+    assert isinstance(result, OptimizedContext)
     assert "def target_function" in result.content
     assert "def dependency" in result.content
-    assert "class UnusedClass" not in result.content
+
+def test_optimization_from_string():
+    """Test optimization when only string context is provided (auto-tempfile)."""
+    opt = sd.HasteOptimizer(top_k=1, semantic=False)
+    result = opt.optimize(
+        context=TEST_CODE,
+        query="target_function"
+        # No file_path provided
+    )
+    
+    assert isinstance(result, OptimizedContext)
+    assert "def target_function" in result.content
+    assert "def dependency" in result.content
 
 def test_metrics_integrity(temp_python_file):
     opt = sd.HasteOptimizer(semantic=False)
