@@ -83,7 +83,7 @@ The backend is fully documented via **Swagger UI**. Once the backend is running,
 
 ├── **app.py**              	# Main FastAPI application & logic
 
-|:--- **frontend.py**         # Streamlit Frontend UI
+├── **frontend.py**         # Streamlit Frontend UI
 
 ├── **.env.api**    	        # (Ignored by Git) Your private API keys
 
